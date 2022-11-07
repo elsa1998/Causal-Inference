@@ -1,0 +1,172 @@
+---
+title: "Star Digital Causal Analysis"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(readxl)
+library(car)
+library(reshape)
+library(dplyr)
+data <- read_excel("G:/My Drive/Causal inference experiment (msba 6441)/Harvard cases/M347SS-XLS-ENG.xls")
+data$test<-as.factor(data$test)
+```
+# Background Introduction
+Star Digital, a multi-channel video service provider would like to know whether it should invest more on online advertising, especially on banner advertising.Therefore, they conducted an experiment to understand the incremental impact of advertising on sales. They randomly assigned consumers into test and control groups based on exposure of ads from a charity organization and Start Digital. The goal is to analyze the effectiveness of experiment, increase purchase frequency, and find the target sites for budget management.
+
+# Experiment Design
+## (a) Treatment and control group
+
+Treatment variable: whether the software places campaign ads to customers or not
+
+Treatment group: 90% of customers who were shown Star Digital Ads
+
+Control group: 10% of customers who were shown charity organization ads
+
+## (b) The unit of analysis
+Customers viewing online advertisements
+
+## (c) Testing method
+A/B testing
+
+# Threat of causal inference
+## 1. Omitted variable bias:
+
+The customer personal information such as gender and age might be omitted. It is likely that these factors are correlated to the final purchasing. For example, younger generation is more likely to subscribe because they addict more to social media and networks.
+
+## 2. Simultaneity bias:
+
+In some cases, not only impressions influence on purchase decision, dependent variable(purchase) can affect independent variable(impressions). For instance, consumers may be impressed more on specific sites after subscription.
+
+## 3. Measurement error:
+
+We cannot accurately count and check if users really view the ads, since some extension tools might block the ads.
+
+## 4. Selection bias:
+
+There is no evidence about which sample of customers are selected in the experiment. It is possible that consumers in the experiment are mostly low financial level and cannot afford the subscription.
+
+# Exploratory Data Analysis
+This dataset includes 1 id column, 6 numerical independent variables (imp_1 ~ imp_6), 1 binary treatment variable (test), and 1 binary dependent variable (purchase).  
+We conduct data processing to view the statistics and check the assumption.
+
+## 1. Descriptive summary
+```{r}
+summary(data[3:8])
+```
+
+## 2. Check missing values
+```{r}
+sum(is.na(data))
+```
+
+## 3. Data Transformation
+We combine the numbers of impressions that the consumer saw at website1 through 5, and all websites.
+```{r}
+data=data %>% mutate(imp1to5=imp_1+imp_2+imp_3+imp_4+imp_5)
+data=data %>% mutate(imp_all=imp_1+imp_2+imp_3+imp_4+imp_5+imp_6)
+```
+
+## 4. Check outliers
+We choose 0.99 percentile outlier.
+```{r}
+# imp1 to imp5
+quantile(data$imp1to5,c(0.9,0.95,0.97,0.98,0.99,0.995,0.999))
+outlier1 = quantile(data$imp1to5, 0.99)[[1]]
+data$imp1to5<-ifelse(data$imp1to5 > outlier1, outlier1, data$imp1to5)
+
+# imp6
+quantile(data$imp_6,c(0.9,0.95,0.97,0.98,0.99,0.995,0.999))
+outlier2 = quantile(data$imp_6,0.99)[[1]]
+data$im_6<-ifelse(data$imp_6 > outlier2, outlier2, data$imp_6)
+```
+
+# Before experiments
+
+## 1. Randomization Check
+We conducted t.test to see whether the control and treatment groups have the similar average number of imp_1to5 and imp_6. It shows that p-values of both imp_1to5 and imp6 are larger than 0.05, which means the numbers of impression 1 to 5 and impression 6 are not different between the control and treatment groups. That is, the experiment is successfully randomized.
+```{r}
+# p-value = 0.5188 > alpha(0.05), do not reject H0.
+t.test(imp1to5 ~ test,data=data)
+
+# p-value = 0.6661 > alpha(0.05), do not reject H0.
+t.test(imp_6 ~ test,data=data)
+
+# p-value = 0.8987 > alpha(0.05), do not reject H0.
+t.test(imp_all ~ test,data=data)
+```
+
+## 2. Power Test
+We check whether the sample size is less than or larger than the minimum required, we use alpha=0.05 and beta=0.2. If we would like to detect 0.1% change in purchase rate, we need at least 174 samples in each group. For this case, we have more than 20000 samples in treatment and more than 2000 samples in control group. Therefore, it is an overpowered study.
+
+```{r}
+# treatment
+treat<-filter(data,test==1)
+p1<-mean(treat$purchase)
+n1<-nrow(treat)
+s1<-sqrt(p1*(1-p1)/n1)
+
+# control
+control<-filter(data,test==0)
+p2<-mean(control$purchase)
+n2<-nrow(control)
+s2<-sqrt(p2*(1-p2)/n2)
+
+power.t.test(delta = 0.001,sd=s1, sig.level = 0.05, type = 'two.sample', power = 0.8, alternative = 'two.sided')
+```
+
+# Three experiments
+
+## 1. The Effectiveness of Online Advertising for Star Digital
+We performed t-test to check if the campaign ads (treatment) affects the purchase (dependent variables).
+
+```{r}
+# p-value = 0.06139 > 0.05(alpha), do not reject H0
+t.test(purchase~test, data = data)
+```
+we cannot conclude that the mean purchase proportion of treatment groups is higher than that of the control group. That is, we can't tell whether online advertising is significantly effective for the company or not.
+
+## 2. Relationship between Impressions and Purchase
+We use simple linear regression models on the treatment group to find out whether the change in number of impressions would result in changes of purchase. 
+
+```{r}
+treatment = data %>% filter(test == 1)
+summary(lm(purchase ~ imp_all, treatment))
+```
+The p-value of imp_all is smaller than 0.05, which means if the number of ad impressions increase 1 unit, customers will have 0.36299 more probability to purchase.
+
+## 3. Choosing between Website 6 or Websites 1 through 5
+We use simple linear regression models on the treatment group to compare the average impact on site1 to site 5 and that on site 6 purchase.
+
+```{r}
+summary(lm(purchase ~ imp1to5 , treatment))
+summary(lm(purchase ~ imp_6, treatment))
+```
+
+Each additional increase in the company’s ad impression of websites 1 through 5 will increase purchase by 0.71029%. Each additional point increase in the company’s ad impression of website 6 will increase purchase by 0.3695%.
+
+```{r}
+# cost
+cost_imp1to5 <- 25/1000
+cost_imp_6 <- 20/1000
+
+#calculate the cost
+cost_1to5 <- cost_imp1to5/0.0071029
+cost_1to5 
+cost_6 <- cost_imp_6/0.0036950
+cost_6
+```
+For the cost of advertising on different websites for one thousand impressions, website 1 through 5’s cost is $0.025 per impression, and website 6’s cost is $0.02 per impressio. Thus, the cost for per increase in purchase is $3.52 for website 1 to 5, and $5.41 for website 6. The cost for websites 1 to 5 is cheaper than website 6. Hence, we will recommend Star Digital to invest more money on websites 1 to 5.
+
+
+## Executive Summary
+We can conclude three points in the following:
+
+1. We use t-test and find that we cannot tell significant difference from the purchase rate of the treatment group and that of the control group. Therefore, we cannot determine whether the advertisement is effective for the company. 
+
+2. There is frequency effect of advertising on purchase. User’s exposure to the company’s advertisement can significantly increase the chances of purchase. To be more specific, each additional ad impression will lead to a 0.36299% chance increase in 
+purchase.
+
+3. Star Digital should invest more on site 1 through 5 since it costs less than site 6 on budget. In order to get 1 unit increase in purchase, the company should spend $5.41 on sites 6. However, it only needs to spend $3.52 on site 1 through 5 to get the same results.
