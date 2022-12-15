@@ -1,0 +1,131 @@
+---
+title: "HW3"
+author: "Shao-Ning (Caitlyn) Yen 5737309, Yun-Chien (Elsa) Yen 5815979"
+date: "2022-11-20"
+output: pdf_document
+font: 12
+header-includes:
+  - \usepackage{setspace}\doublespacing
+---
+```{r setup, include=FALSE}
+setwd(dirname(rstudioapi::getActiveDocumentContext()$path))
+library(ggplot2)
+library(dplyr)
+library(plm)
+ad <- read.csv("did_sponsored_ads.csv")
+```
+### Background Introduction
+Bazaar.com is the leading online retailer in the United States using display and search engine advertising, running paid search ads on Google and Bing. It releases its ads in response to keywords from online customers and classifies them into branded and nonbranded. Brand keywords contain the brand name such as ‘Bazaar shoes’ and ‘Bazaar guitar.’ Nonbranded keywords include items without a brand name, such as ‘shoes’ and ‘guitar.’
+Considering traffic data from Google and Bing, Bob, who is from Bazaar’s marketing analytics team, computed that ROI is 320% associated with sponsored search ads. His result is problematic because people who search with the word ‘Bazaar’ already intended to visit Bazaar.com, so we doubt the effectiveness of branded keyword ads. Our goal is to understand the causal inference of the search ads and their point.
+
+### (a) What’s wrong with Bob’s ROI analysis?
+Bob’s ROI calculation is incorrect as it does not consider the customers who already had an intention of buying/reaching the bazaar.co am page. These customers may have reached the page by clicking on the sponsored link but may already have an intention of going to the bazaar.com website. This is reflected in the fact that the number of clicks for google has gone up in the last three weeks by approximately the same number as the number of sponsored clicks during the previous weeks, as well as the forecasted sponsored clicks for Weeks 10, 11, and 12.
+
+ROI can be calculated as Bob’s ROI 320% is a very high number, and it is impossible to get in the real world. There are many problems in bob’s ROI calculations
+1) In this Case Conversion Rate is 12%, but it is not for only branded keywords by sponsored links because Myra asked Bob what click-through numbers are for both sponsored and organic links, and Bob answered positively. Hence, we must calculate the conversion rate for only sponsored links because we are calculating ROI for Google for branded keywords, so we don’t need to pay for the conversion of organic search so it is possible that the conversion rate is low for Google sponsored keywords so low conversion rate can decrease the margin. If the margin becomes low, then ROI will decrease.
+2) Also, here margin per conversion Is 21$ it is also combined of both sponsored and organic links. So, we must calculate the ROI for the Sponsored links only.
+3) From the data, we can identify the traffic sponsored sites create every week, and from that, we can get the average revenue from the sponsored ads, and after getting the average revenue, we can get the real ROI for the sponsored ads.
+4) From the data, we know that the average margin per conversion is 21, and we can get the average revenue per click:
+```{r}
+0.12* 21
+```
+But as we know from the discussion in the case, we only get the 20 % of the traffic from the sponsored websites by advertising on Google. So, our average revenue for the sponsored ads per click:
+```{r}
+2.52 * 0.2
+```
+
+Now, we can calculate ROI below
+ROI = (Average Revenue – Cost per Click) / Cost per Click
+```{r}
+ROI = (0.504 - 0.6) / 0.6
+ROI
+```
+
+So, our ROI is -16%. Here, we get negative ROI which means that Bazaar.com has more cost than it gains from the sponsored sites. That means that Bazaar.com have to increase the traffic for the sponsored website. 
+
+### (b)	Define the Treatment and Control Group.
+The unit of observation is the weekly clicks from each search engine. 
+Treatment Group: Average clicks on Google.
+Control Group: Average clicks on other platforms such as ask, bing, and yahoo.
+
+### (c)	Consider a First Difference Estimate.
+```{r}
+ad$avg_total = ad$avg_org + ad$avg_spons
+
+ad = ad%>%mutate(after = ifelse(week<10, 0, 1),
+                 treatment = ifelse(id==3, 1, 0))
+
+# Create treatment subset
+google = ad%>%filter(id==3)
+
+# Calculate the mean avg_total in the two time periods(after)
+google %>%
+    group_by(after)%>%
+    summarise(avg_week_total = mean(avg_total),
+              avg_week_spons = mean(avg_spons),
+              avg_week_org = mean(avg_org))
+
+# First difference
+summary(lm(avg_total ~ after, data=google))
+
+# % Loss of clicks due to absence of sponsored ads
+(6544-8390) / 8390  # 22% decrease
+```
+
+Using the first difference method, we can see that the treatment effect—no sponsored ads—caused a -1846 percent drop in total traffic for the Google platform following the treatment period. We disregard the natural variation of website traffic, so this number is not only not reliable. Having said that, it's possible that website traffic will follow a significantly different pattern after the period than it did before. This factor could not be taken into account by this model's estimation, which could result in an incorrect conclusion.
+
+### (d) Calculate the Difference-in-Differences.
+```{r}
+summary(plm(avg_total ~ treatment*after,
+            data=ad, 
+            model='within', 
+            effect='twoways', 
+            index=c('id','week')))
+
+# Calculate the mean avg_total in the two time periods(after)
+ad %>%
+    group_by(treatment, after)%>%
+    summarise(avg_week_total = mean(avg_total),
+              avg_week_spons = mean(avg_spons),
+              avg_week_org = mean(avg_org))
+
+# The real % Loss of clicks due to absence of sponsored ads with DiD
+(6544-8390) / 8390 - (13330-5265) / 5265 # 175% decrease
+
+
+# Group data by week and treatment and calculate average values for plotting
+week_ave = ad %>% group_by(week, treatment) %>% 
+                  summarise(avg_view_total = mean(avg_total),
+                                             ave_view_org=mean(avg_org),
+                                             ave_view_spons=mean(avg_spons))
+
+ggplot(week_ave, aes(x = week, y = avg_view_total, color = factor(treatment))) + geom_line() + geom_vline(xintercept = 10, linetype='dashed') + theme_bw()
+```
+
+The treatment's difference in difference effect is found to be -9910.6 using the DiD model, which is even lower than the coefficient we estimated using the First Difference method.The decrease in sponsored ad traffic could not be offset by this mean increase in organic traffic. More specifically, the post-period natural increase in total traffic is captured by this DiD model.
+
+```{r}
+summary(lm(avg_total ~ treatment*factor(week), data=ad))
+```
+
+In addition, the parallel assumptions that the distinction between the "treatment" and "control" groups will remain constant in the absence of treatment do not hold from both perspectives.First of all, the graph above demonstrates that there are no parallel trends over time.Another reason is that the assumption will be valid only if all of the pre-period p-values are less than 0.05.The test and graph above clearly demonstrate that the parallel trends assumption is false.
+
+### (e) Given the Treatment Effect Estimate, Fix Bob’s RoI Calculation.
+From the above calculation, we have the incremental weekly traffic attribute to sponsored ad equals to 9911. 
+The incremental gain from these clicks:
+```{r}
+9911 * 0.12 * 21
+```
+
+And average weekly clicks from sponsored search is 6123. So, the weekly cost of sponsored search: 
+```{r}
+6123 * 0.60 
+```
+
+ROI = (Average Revenue – Cost per Click) / Cost per Click
+```{r}
+ROI  = (24975.72 - 3673.8) / 3673.8 * 100
+ROI
+```
+
+The ROI should be 580%. 
